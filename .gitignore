@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+.env.*
+nara-backup*/
+nara-live-backup*/
+backup*/
+migration-*.json
+export-report.json
+account.json
+family-memberships.json
+family-*/
+.DS_Store
