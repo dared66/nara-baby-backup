@@ -42,7 +42,11 @@ class Client:
             with self.opener.open(req, timeout=60) as response:
                 return json.load(response)
         except error.HTTPError as exc:
-            exc.close()
+            try:
+                exc.close()
+            except Exception:
+                # Cleanup must not mask the fixed, secret-free request error.
+                pass
             if exc.code in (401, 403):
                 raise ExportError("Login expired, incorrect login, or access denied (HTTP %s)." % exc.code) from None
             raise ExportError("Nara request failed (HTTP %s). Try again later." % exc.code) from None

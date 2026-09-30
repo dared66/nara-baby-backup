@@ -1,4 +1,5 @@
 import csv
+import io
 import importlib.util
 import json
 from pathlib import Path
@@ -90,13 +91,28 @@ class Tests(unittest.TestCase):
     def test_secrets_not_in_http_error(self):
         class BadOpener:
             def open(self, req, timeout):
-                raise HTTPError(req.full_url, 403, 'secret password', {}, None)
+                raise HTTPError(req.full_url, 403, 'secret password', {}, io.BytesIO(b'private response'))
         client = e.Client()
         client.opener = BadOpener()
         with self.assertRaises(e.ExportError) as caught:
             client.login('private@example.com', 'secret password')
         self.assertNotIn('secret', str(caught.exception))
         self.assertNotIn('private', str(caught.exception))
+
+    def test_http_cleanup_failure_cannot_expose_raw_error(self):
+        class BrokenClose(HTTPError):
+            def close(self):
+                raise RuntimeError('private cleanup detail')
+        class BadOpener:
+            def open(self, req, timeout):
+                raise BrokenClose(req.full_url, 403, 'secret password', {}, io.BytesIO(b'private response'))
+        client = e.Client()
+        client.opener = BadOpener()
+        with self.assertRaises(e.ExportError) as caught:
+            client.login('private@example.invalid', 'secret password')
+        self.assertNotIn('private', str(caught.exception))
+        self.assertNotIn('secret', str(caught.exception))
+        self.assertIn('HTTP 403', str(caught.exception))
 
     def test_redirects_blocked_and_identifiers_validated(self):
         self.assertIsNone(e.NoRedirect().redirect_request(None, None, 302, '', {}, 'https://example.com'))
