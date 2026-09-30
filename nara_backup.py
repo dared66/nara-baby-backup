@@ -570,7 +570,7 @@ def little_log_destination(path, name):
             raise UserError('Little Log export belongs to a different baby.')
         return family
     except (OSError, ValueError, KeyError, TypeError):
-        raise UserError('Choose the JSON saved from Little Log → Export baby log → Copy JSON.') from None
+        raise UserError('Choose the JSON saved from Little Log -> Export baby log -> Copy JSON.') from None
 
 
 def little_log_time(value):
@@ -713,7 +713,7 @@ def export_little_log(folder, destination_paths=()):
             print('\nLittle Log destination for ' + name)
             path = next(destinations, None)
             if path is None:
-                path = Path(input('Path to this baby’s Little Log JSON export: ').strip().strip('"'))
+                path = Path(input('Path to the matching Little Log JSON export: ').strip().strip('"'))
             family = little_log_destination(Path(path), name)
             selected = {k:r for k,r in tracks.items() if r.get('childKey') == child_id}
             caregiver_keys = sorted({r.get('createUserKey', r.get('userKey')) for r in selected.values()
@@ -744,10 +744,10 @@ def export_little_log(folder, destination_paths=()):
                     'photo_files_transferred':False}
             report['children'].append(item)
             save(folder/'little-log-report.json', report)
-            print('%d source records → %d CSV rows; %d unmapped; %d deleted excluded.' % (mapped,len(rows),len(unmapped),deleted))
+            print('%d source records -> %d CSV rows; %d unmapped; %d deleted excluded.' % (mapped,len(rows),len(unmapped),deleted))
             print('Open as plain text and copy EVERYTHING: ' + str(output.resolve()))
     save(folder/'little-log-report.json', report)
-    print('Select the matching baby in Little Log → Settings → Import and recovery → Paste from clipboard → Preview import.')
+    print('Select the matching baby in Little Log -> Settings -> Import and recovery -> Paste from clipboard -> Preview import.')
     print('Review the preview before importing. Conversion does not verify app display; check entries in Little Log afterward.')
     return 1 if any(c['unmapped'] for c in report['children']) or report['unassociated_records'] else 0
 
