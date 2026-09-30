@@ -1,8 +1,8 @@
 # Nara Baby Backup & Huckleberry Migration
 
-Keep a local copy of your Nara Baby history, with an optional guided copy into Huckleberry. Plain Python, no app builds, Docker, AI assistant, phone connection, or Keychain setup.
+Keep a local copy of your Nara Baby history, with an optional guided copy into Huckleberry. One downloadable Python script. No app builds, Docker, AI assistant, phone connection, or Keychain setup.
 
-**Backup:** Python 3.9+, no extra packages.  
+**Backup:** Python 3.9+, no extra packages. Downloading `nara_backup.py` alone is sufficient.  
 **Huckleberry migration:** Python 3.14+ and an optional dependency installed into a local environment.
 
 This is an unofficial community tool. It does not guarantee a complete copy of everything held by either service. Photos are not downloaded. Keep the original backup.
@@ -10,7 +10,7 @@ This is an unofficial community tool. It does not guarantee a complete copy of e
 ## Back up Nara
 
 1. Install Python from [python.org](https://www.python.org/downloads/) if needed. On Windows, enable **Add Python to PATH** if offered.
-2. Download and extract this project. Open Terminal (Mac/Linux) or PowerShell (Windows) in that folder.
+2. Download `nara_backup.py` (or extract this project). Open Terminal (Mac/Linux) or PowerShell (Windows) in that folder.
 3. Run:
 
    Mac/Linux: `python3 nara_backup.py --backup-only`
@@ -27,23 +27,20 @@ CSV preserves every returned field, with nested objects represented as JSON text
 
 Create a profile for each child in Huckleberry first. Use the same name and birth date as Nara. The tool will stop if profiles cannot be matched uniquely; it does not create or modify profiles.
 
-Install **Python 3.14 or newer**, then run this one-time setup:
+Install **Python 3.14 or newer**, then run the same single file:
 
-Mac/Linux:
+Mac/Linux: `python3 nara_backup.py`
 
-```sh
-python3 setup_migration.py
-./.venv/bin/python nara_backup.py
+Windows: `py -3.14 nara_backup.py`
+
+The menu is:
+
+```
+1. Back up Nara Baby only
+2. Back up Nara Baby and migrate to Huckleberry
 ```
 
-Windows:
-
-```powershell
-py -3.14 setup_migration.py
-.\.venv\Scripts\python.exe nara_backup.py
-```
-
-Choose **2** in the menu. The setup script explains the dependency installation and asks before downloading it. It installs `huckleberry-api==0.4.7` and its dependencies from PyPI into `.venv` beside the scripts; it does not change system Python.
+Choose **2**. If needed, the script offers to install `huckleberry-api==0.4.7` and its dependencies from PyPI into `.nara-migration-env` beside itself, then continues automatically. It asks before installing, makes no system-Python changes, and installs before requesting credentials. On later runs it reuses that environment. There is no separate setup script or requirements file.
 
 The guided tool saves a Nara backup first, privately asks for your Huckleberry login, matches child profiles, checks destination history, and previews new records, existing records, conflicts, unsupported entries, and photo references. **No import writes occur until you type `IMPORT`.**
 
@@ -51,13 +48,13 @@ Each write creates a new history document. Existing documents are never overwrit
 
 ### Resume or import an existing backup
 
-Keep the whole backup folder, including its reports and journal. Run using the migration environment:
+Keep the whole backup folder, including its reports and journal. Run the same script and point it at your saved backup:
 
 ```sh
-./.venv/bin/python nara_backup.py --backup-dir /path/to/nara-backup-folder
+python3 nara_backup.py --backup-dir /path/to/nara-backup-folder
 ```
 
-On Windows, use `.\.venv\Scripts\python.exe` and quote paths containing spaces. The tool checks the server before every import, so already-matching entries are recognised. Same-time/category conflicts are skipped and reported rather than overwritten. Batch writes use create-only preconditions and no automatic retries. If a response is lost, actual server state is checked; retain the journal and resume from the same backup.
+On Windows, use `py -3.14 nara_backup.py` and quote paths containing spaces. The tool checks the server before every import, so already-matching entries are recognised. Same-time/category conflicts are skipped and reported rather than overwritten. Batch writes use create-only preconditions and no automatic retries. If a response is lost, actual server state is checked; retain the journal and resume from the same backup.
 
 A recreated backup or modified source can produce conflicts instead of duplicates. Do not change backup filenames, identifiers, or JSON to force an import.
 
@@ -99,14 +96,14 @@ On Unix, new folders/files are private. Windows uses your folder's access permis
 ## Troubleshooting
 
 - **Python not found:** install Python and reopen your terminal. Some systems use `python` rather than `python3`.
-- **Missing migration dependencies:** run `setup_migration.py`, then use the `.venv` Python command above. Backup-only never needs those packages.
-- **Setup failed:** the environment remains in `.venv`. Retry with its Python: `-m pip install -r requirements-migration.txt`.
+- **Missing migration dependencies:** choose option 2 and accept its optional setup prompt. Backup-only never needs those packages.
+- **Setup failed:** the environment remains in `.nara-migration-env`. Check your internet connection and rerun option 2; it can retry setup.
 - **Login/access denied:** check the email/password, connectivity and service permissions. No raw upstream diagnostic payload is printed.
 - **Partial backup:** keep saved files and read `export-report.json`. History migration can proceed if every family has both child profiles and parsed history, even when broader snapshots were denied.
 - **Incomplete migration:** keep reports/journal. Resume with `--backup-dir`; conflicts need review. Never delete destination entries to force a rerun.
 - **Certificate problem on Mac:** use the certificate installer supplied with your Python installation. Do not disable HTTPS verification.
 
-Run `python3 nara_backup.py --help` for options. `nara_export.py` remains available as the standalone backup-only script.
+Run `python3 nara_backup.py --help` for options. Use option 1 or `--backup-only` for a dependency-free backup.
 
 ## Development and attribution
 
@@ -114,7 +111,7 @@ Run `python3 nara_backup.py --help` for options. `nara_export.py` remains availa
 python3 -m unittest discover -s tests -v
 ```
 
-Without optional dependencies, migration tests are skipped. To run all tests, use the `.venv` Python after setup. All checked-in tests are offline; none authenticate or create real baby records. CI is configured for Python 3.9/3.14 and Windows/macOS/Linux. A configured CI matrix is not a claim that those remote jobs have already run.
+Without optional dependencies, migration tests are skipped. To run all tests, use the `.nara-migration-env` Python after option 2 setup, or install `huckleberry-api==0.4.7` in your own test environment. All checked-in tests are offline; none authenticate or create real baby records. CI is configured for Python 3.9/3.14 and Windows/macOS/Linux. A configured CI matrix is not a claim that those remote jobs have already run.
 
 Endpoint/schema observations come from [nara-baby-tracker-api](https://github.com/jfchenier/nara-baby-tracker-api) and [NaraGaiden](https://github.com/edemaine/NaraGaiden). Migration uses the MIT-licensed, unofficial [huckleberry-api](https://github.com/Woyken/py-huckleberry-api). No upstream client is vendored. Dependency version is pinned; transitive versions are resolved during setup.
 

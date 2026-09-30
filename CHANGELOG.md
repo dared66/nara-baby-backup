@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0
+
+- Consolidate backup, field conversion, migration, and guided setup into one downloadable `nara_backup.py`.
+- Offer optional dependency installation only for option 2; reuse its isolated environment on later runs.
+- Preserve CLI resume, explicit import confirmation, and readback checks.
+
 ## 0.1.0
 
 - Dependency-free Nara JSON/CSV backup for every accessible family.

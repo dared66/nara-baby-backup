@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from urllib.error import HTTPError
 
-spec = importlib.util.spec_from_file_location('exporter', Path(__file__).resolve().parents[1] / 'nara_export.py')
+spec = importlib.util.spec_from_file_location('exporter', Path(__file__).resolve().parents[1] / 'nara_backup.py')
 e = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(e)
 
@@ -102,6 +102,7 @@ class Tests(unittest.TestCase):
     def test_http_cleanup_failure_cannot_expose_raw_error(self):
         class BrokenClose(HTTPError):
             def close(self):
+                super().close()
                 raise RuntimeError('private cleanup detail')
         class BadOpener:
             def open(self, req, timeout):

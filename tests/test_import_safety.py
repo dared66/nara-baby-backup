@@ -5,7 +5,8 @@ import tempfile
 import unittest
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 try:
- import huckleberry_import as m
+ import nara_backup as m
+ m.load_migration_dependencies()
 except ImportError:
  raise unittest.SkipTest('Optional migration dependencies are not installed')
 

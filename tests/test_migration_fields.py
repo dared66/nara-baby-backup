@@ -3,7 +3,8 @@ from pathlib import Path
 import sys
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 try:
- import migration_fields as m
+ import nara_backup as m
+ m.load_migration_dependencies()
 except ImportError:
  raise unittest.SkipTest("Optional migration dependencies are not installed")
 class Tests(unittest.TestCase):

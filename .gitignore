@@ -1,6 +1,7 @@
 __pycache__/
 *.py[cod]
 .venv/
+.nara-migration-env/
 .env
 .env.*
 nara-backup*/

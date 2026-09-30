@@ -8,7 +8,8 @@ import unittest
 from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 try:
- import huckleberry_import as m
+ import nara_backup as m
+ m.load_migration_dependencies()
 except ImportError:
  raise unittest.SkipTest('Optional migration dependencies are not installed')
 
@@ -56,7 +57,7 @@ class Tests(unittest.TestCase):
  def run_flow(self,db,approve):
   API.database=db
   with tempfile.TemporaryDirectory() as tmp,patch.object(m,'HuckleberryAPI',API):
-   return asyncio.run(m.migrate(Path(tmp),self.groups(),'synthetic@example.invalid','not-a-real-password',lambda preview:approve,lambda text:None))
+   return asyncio.run(m.run_migration(Path(tmp),self.groups(),'synthetic@example.invalid','not-a-real-password',lambda preview:approve,lambda text:None))
  def test_declining_confirmation_prevents_all_writes(self):
   db=DB();r=self.run_flow(db,False)
   self.assertTrue(r['canceled']);self.assertEqual(db.writes,0)
