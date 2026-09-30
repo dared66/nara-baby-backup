@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0
+
+- Add dependency-free option 3: native Little Log CSVs using each baby’s exported destination identity.
+- Preserve original source records and report unmapped, deleted, and unassociated entries.
+- Add detailed copy-and-paste instructions at the bottom of the README.
+
 ## 0.2.0
 
 - Consolidate backup, field conversion, migration, and guided setup into one downloadable `nara_backup.py`.

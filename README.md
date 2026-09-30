@@ -69,7 +69,7 @@ Run this on your own computer. Credentials are not stored in files, arguments, o
 - **Login/access denied:** check your email/password and service permissions.
 - **Partial backup/import:** retain all files, read the reports, and resume using `--backup-dir`. Migration requires profiles and parsed history for every family; broader snapshots may be denied independently.
 
-Run `python3 nara_backup.py --help` for flags, including `--backup-only`, `--migrate`, and `--output`.
+Run `python3 nara_backup.py --help` for flags, including `--backup-only`, `--migrate`, `--little-log`, and `--output`.
 
 ## Development
 
@@ -80,3 +80,43 @@ python3 -m unittest discover -s tests -v
 Tests are offline; migration tests require `huckleberry-api==0.4.7` and otherwise skip. CI covers Windows, macOS, and Linux on Python 3.9/3.14. See [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
 
 Endpoint/schema references: [nara-baby-tracker-api](https://github.com/jfchenier/nara-baby-tracker-api), [NaraGaiden](https://github.com/edemaine/NaraGaiden). Migration uses [huckleberry-api](https://github.com/Woyken/py-huckleberry-api), pinned at 0.4.7; transitive dependencies resolve during setup.
+
+
+## 🥚 Easter egg: option 3 — Little Log
+
+Option 3 backs up Nara and creates **Little Log’s native CSV**, one file per baby. Python 3.9+ is enough; no extra packages or Google login are needed. You finish the import inside Little Log.
+
+### Before running
+
+1. Create or select the matching baby in Little Log. Use the same name as Nara.
+2. Open **Export baby log → Copy JSON**. Paste everything into a plain-text editor and save as `little-log-baby.json`. On Mac, use TextEdit’s **Format → Make Plain Text**; on Windows, use Notepad. Keep the `.json` extension.
+3. Repeat for each baby, saving a separate file. These exports identify the exact destination log and also preserve its current state. An arbitrary Google Drive link cannot replace this step.
+
+### Generate the import
+
+1. Run `python3 nara_backup.py` (Windows: `py nara_backup.py`) and choose **3**.
+2. Enter your Nara login. The complete accessible backup is saved first.
+3. For each baby, enter the path to that baby’s Little Log JSON export when prompted. The names must match. The script uses the export’s log ID so Little Log accepts the resulting CSV.
+4. The script prints the path to each `little-log-child-XX.csv` and its mapped/unmapped counts. Read `little-log-report.json` before importing, especially if it reports exceptions.
+
+### Copy and paste into Little Log
+
+1. Open the generated CSV in a **plain-text editor**, not Excel or Google Sheets.
+2. Select all and copy **the entire file, including the header and family metadata row**. Do not copy just the activity rows or edit the IDs.
+3. In Little Log, select the matching baby, then open **Settings → Import and recovery → Paste from clipboard**.
+4. Preview the import, check the baby and counts, and confirm using Little Log’s import control. Repeat separately for the other babies.
+5. Check representative entries in the app afterward. Keep both the Nara backup and the Little Log export. Little Log handles duplicate/conflict checks and offers recovery; the script itself does not write to the app or Drive.
+
+### What this option includes
+
+Supported mappings: bottles (including recorded milk/formula components), nursing, diapers (including recorded color/texture/rash/blowout), completed sleep, growth measurements, and named milestones. Growth records with multiple measurements become separate rows. Original timestamps, notes, distinct caregiver labels, and complete original Nara records are retained in the CSV’s source metadata. Missing nursing end times are not invented.
+
+Unsupported or invalid entries are listed with their originals in `little-log-report.json`. Vaccine records without a verified mapping, other categories, baby profile settings, and actual photo files are not transferred. Source deletion markers are excluded; unassociated records are not assigned to a baby. A nonzero exit status signals conversion exceptions, not loss of the backup. CSVs must fit Little Log’s 10 MB limit. Conversion alone does not prove a successful app import or exhaustive Nara coverage.
+
+To convert an existing backup without downloading again:
+
+```sh
+python3 nara_backup.py --little-log --backup-dir "/path/to/nara-backup-folder"
+```
+
+Optional: add `--little-log-export "/path/to/little-log-baby.json"` for each baby, in the order prompted. Repeated conversion produces stable activity IDs; let Little Log’s preview decide whether records already exist or conflict. If you want shared Google Drive storage, connect it through Little Log after checking the import.

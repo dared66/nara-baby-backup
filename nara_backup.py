@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""One-file Nara Baby backup with optional guided Huckleberry migration."""
+"""One-file Nara Baby backup with Huckleberry migration or Little Log CSV import."""
 import argparse
 import asyncio
 import contextlib
 import csv
+import io
+import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 import getpass
@@ -23,7 +25,7 @@ import venv
 import warnings
 from zoneinfo import ZoneInfo
 
-VERSION = '0.2.0'
+VERSION = '0.3.0'
 HUCKLEBERRY_VERSION = '0.4.7'
 
 
@@ -548,6 +550,208 @@ async def run_migration(folder, groups, email, password, confirm, progress=print
                         api._firestore_client.close()
 
 
+# Little Log interchange uses its native 18-column CSV, schema 6.
+LITTLE_LOG_HEADER = ['record_type', 'format_version', 'family_name', 'baby_name',
+    'id', 'family_id', 'time_utc', 'method', 'amount_ml', 'minutes', 'note',
+    'caregiver', 'schema_version', 'ended_at_utc', 'left_seconds', 'right_seconds',
+    'diaper_kind', 'details_json']
+
+
+def little_log_destination(path, name):
+    try:
+        raw = json.loads(path.read_text(encoding='utf-8-sig'))
+        family = raw['family']
+        if raw.get('format') != 'little-log' or raw.get('schemaVersion') not in (3, 4):
+            raise ValueError()
+        if any(not isinstance(family.get(k), str) or not family[k].strip()
+               for k in ('id', 'name', 'babyName')):
+            raise ValueError()
+        if family['babyName'].strip().casefold() != name.strip().casefold():
+            raise UserError('Little Log export belongs to a different baby.')
+        return family
+    except (OSError, ValueError, KeyError, TypeError):
+        raise UserError('Choose the JSON saved from Little Log → Export baby log → Copy JSON.') from None
+
+
+def little_log_time(value):
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise Unmapped('Missing or invalid timestamp')
+    try:
+        return datetime.fromtimestamp(value / 1000, timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
+    except (ValueError, OverflowError, OSError):
+        raise Unmapped('Invalid timestamp') from None
+
+
+def little_log_volume(record, prefix):
+    unit = record.get(prefix + 'Unit')
+    if unit not in ('ML', 'FLOZ'):
+        raise Unmapped('Unknown volume unit')
+    value = number(record, prefix) * (29.5735295625 if unit == 'FLOZ' else 1)
+    if not 0 < value <= 2000:
+        raise Unmapped('Volume outside Little Log limits')
+    return value
+
+
+def little_log_rows(record_id, r, family_id, author):
+    start = little_log_time(r.get('beginDt'))
+    note = r.get('note', '')
+    if not isinstance(note, str) or len(note) > 2000:
+        raise Unmapped('Note outside Little Log limits')
+    source = {'system': 'Nara Baby', 'recordId': record_id,
+              'caregiverId': r.get('createUserKey', r.get('userKey')),
+              'timezone': r.get('tz'), 'original': r}
+    method, amount, minutes, end, left, right, kind = '', '', '', '', '', '', ''
+    details = {}
+    typ = r.get('type')
+    if typ == 'DIAPER':
+        method = 'diaper'
+        pee, poop = r.get('diaperTypePee'), r.get('diaperTypePoop')
+        if not isinstance(pee, bool) or not isinstance(poop, bool) or not (pee or poop or r.get('diaperTypeDry') is True):
+            raise Unmapped('Unknown diaper contents')
+        kind = 'both' if pee and poop else 'wet' if pee else 'dirty' if poop else 'dry'
+        for src, dst in [('diaperTypeRash', 'rash'), ('diaperPoopBlowout', 'blowout')]:
+            if src in r and (dst == 'rash' or poop):
+                if not isinstance(r[src], bool):
+                    raise Unmapped('Invalid diaper detail')
+                details[dst] = r[src]
+        for src, dst, choices in [
+            ('diaperPoopColor', 'poopColors', {v.upper(): v for v in
+             ['yellow','mustard','orange','green','brown','black','red','white','gray','other']}),
+            ('diaperPoopTexture', 'poopConsistencies',
+             {'MUSH':'mushy','RUN':'watery','MUCOUS':'mucousy','PEBBLE':'hard','SOLID':'formed'})]:
+            if poop and src in r:
+                if not isinstance(r[src], str) or not r[src].split() or any(v not in choices for v in r[src].split()):
+                    raise Unmapped('Unknown diaper color or texture')
+                details[dst] = sorted({choices[v] for v in r[src].split()})
+    elif typ == 'FEED' and r.get('feedType') == 'BREAST':
+        method = 'nursing'
+        if r.get('breastLeftDuration') is None and r.get('breastRightDuration') is None:
+            raise Unmapped('Nursing duration missing')
+        l = r.get('breastLeftDuration') if r.get('breastLeftDuration') is not None else 0
+        rr = r.get('breastRightDuration') if r.get('breastRightDuration') is not None else 0
+        if any(isinstance(v, bool) or not isinstance(v, int) or v < 0 for v in (l, rr)):
+            raise Unmapped('Invalid nursing duration')
+        left, right, minutes = l // 1000, rr // 1000, math.ceil((l + rr) / 60000)
+        source.update(leftDurationMs=l, rightDurationMs=rr, endTimeBasis='notRecorded')
+    elif typ == 'FEED' and r.get('feedType') == 'BOTTLE':
+        method, amount = 'bottle', little_log_volume(r, 'bottleVolume')
+        milk, formula = r.get('bottleTypeBreastMilk'), r.get('bottleTypeFormula')
+        if milk is True or formula is True:
+            milk_ml = (little_log_volume(r, 'bottleBreastMilkVolume') if formula is True else amount) if milk is True else 0
+            if milk_ml > amount:
+                raise Unmapped('Milk component exceeds total')
+            details = {'breastMilkMl': milk_ml, 'formulaMl': amount - milk_ml}
+            if 'bottleFormulaName' in r:
+                if not isinstance(r['bottleFormulaName'], str) or len(r['bottleFormulaName']) > 500:
+                    raise Unmapped('Invalid formula name')
+                details['formulaName'] = r['bottleFormulaName']
+    elif typ == 'SLEEP':
+        method, end = 'sleep', little_log_time(r.get('endDt'))
+        if r['endDt'] <= r['beginDt']:
+            raise Unmapped('Incomplete sleep interval')
+    elif typ == 'GROW':
+        measurements = []
+        for prefix, label, units in [('weight','Weight',{'KG':'kg','LB':'lb'}),
+                ('height','Length',{'CM':'cm','IN':'in'}),
+                ('headSize','Head circumference',{'CM':'cm','IN':'in'})]:
+            if prefix + 'Num' in r:
+                value = number(r, prefix)
+                if r.get(prefix + 'Unit') not in units or value <= 0:
+                    raise Unmapped('Unknown growth measurement or unit')
+                measurements.append((prefix, {'measurement':label, 'value':value, 'unit':units[r[prefix+'Unit']]}))
+        if not measurements:
+            raise Unmapped('Growth measurement missing')
+        result = []
+        for suffix, detail in measurements:
+            identity = str(uuid.uuid5(uuid.NAMESPACE_URL, 'nara-baby:v2:' + record_id + ':' + suffix))
+            result.append([identity, family_id, start, 'growth', '', '', note, author,
+                6, '', '', '', '', json.dumps({'details':detail,'source':source}, ensure_ascii=False, separators=(',', ':'))])
+        return result
+    elif typ == 'GROW.MILESTONE':
+        method = 'milestone'
+        name = r.get('milestoneName')
+        if not isinstance(name, str) or not name.strip() or len(name) > 500:
+            raise Unmapped('Milestone name missing or invalid')
+        details = {'name':name}
+    else:
+        raise Unmapped('No verified Little Log mapping for ' + str(typ))
+    identity = str(uuid.uuid5(uuid.NAMESPACE_URL, 'nara-baby:v2:' + record_id))
+    return [[identity, family_id, start, method, amount, minutes, note, author,
+        6, end, left, right, kind, json.dumps({'details':details,'source':source}, ensure_ascii=False, separators=(',', ':'))]]
+
+
+def little_log_csv(family, rows):
+    stream = io.StringIO(newline='')
+    writer = csv.writer(stream, quoting=csv.QUOTE_ALL, lineterminator='\r\n')
+    def escape(v):
+        text = str(v)
+        return "'" + text if text and text[0] in "'=+-@\t\r\n" else text
+    writer.writerow(LITTLE_LOG_HEADER)
+    writer.writerow([escape(v) for v in ['family','1',family['name'],family['babyName'],'',family['id']]] + [''] * 12)
+    for row in rows:
+        writer.writerow([escape(v) for v in ['event','1','',''] + row])
+    text = stream.getvalue()
+    if len(text.encode('utf-8')) > 10 * 1024 * 1024:
+        raise UserError('Little Log CSV exceeds its 10 MB import limit. Your backup is retained.')
+    return text
+
+
+def export_little_log(folder, destination_paths=()):
+    families = sorted(p for p in folder.glob('family-*') if p.is_dir())
+    if not families or any(not (p/'children.json').is_file() or not (p/'activities.json').is_file() for p in families):
+        raise UserError('Backup lacks child profiles or parsed history. Complete it before converting.')
+    destinations = iter(destination_paths)
+    report = {'children': [], 'unassociated_records': 0, 'app_import_verified': False}
+    for family_dir in families:
+        children = mapping(json.loads((family_dir/'children.json').read_text()), 'children')
+        tracks = mapping(json.loads((family_dir/'activities.json').read_text()), 'activities')
+        report['unassociated_records'] += sum(r.get('childKey') not in children for r in tracks.values())
+        for index, (child_id, profile) in enumerate(children.items(), 1):
+            name = profile.get('name')
+            if not isinstance(name, str) or not name.strip():
+                raise UserError('Source baby name missing.')
+            print('\nLittle Log destination for ' + name)
+            path = next(destinations, None)
+            if path is None:
+                path = Path(input('Path to this baby’s Little Log JSON export: ').strip().strip('"'))
+            family = little_log_destination(Path(path), name)
+            selected = {k:r for k,r in tracks.items() if r.get('childKey') == child_id}
+            caregiver_keys = sorted({r.get('createUserKey', r.get('userKey')) for r in selected.values()
+                if isinstance(r.get('createUserKey', r.get('userKey')), str)})
+            rows, unmapped, deleted, mapped = [], [], 0, 0
+            for record_id, record in sorted(selected.items()):
+                if record.get('deleteDt'):
+                    deleted += 1
+                    continue
+                who = record.get('createUserKey', record.get('userKey'))
+                author = 'Nara caregiver ' + str(caregiver_keys.index(who)+1) if who in caregiver_keys else 'Nara caregiver (unknown)'
+                try:
+                    rows.extend(little_log_rows(record_id, record, family['id'], author))
+                    mapped += 1
+                except Unmapped as exc:
+                    unmapped.append({'source_id':record_id,'reason':str(exc),'record':record})
+            output = family_dir / ('little-log-child-%02d.csv' % index)
+            text = little_log_csv(family, rows)
+            # Atomic replacement makes an existing-backup retry deterministic.
+            temporary = output.with_suffix('.csv.tmp')
+            with temporary.open('w', encoding='utf-8', newline='') as stream:
+                stream.write(text)
+            temporary.chmod(0o600)
+            temporary.replace(output)
+            item = {'name':name, 'file':str(output.relative_to(folder)), 'mapped_source_records':mapped,
+                    'csv_activity_rows':len(rows), 'unmapped':unmapped, 'deleted_excluded':deleted,
+                    'profile_settings_transferred':False,
+                    'photo_files_transferred':False}
+            report['children'].append(item)
+            save(folder/'little-log-report.json', report)
+            print('%d source records → %d CSV rows; %d unmapped; %d deleted excluded.' % (mapped,len(rows),len(unmapped),deleted))
+            print('Open as plain text and copy EVERYTHING: ' + str(output.resolve()))
+    save(folder/'little-log-report.json', report)
+    print('Select the matching baby in Little Log → Settings → Import and recovery → Paste from clipboard → Preview import.')
+    print('Review the preview before importing. Conversion does not verify app display; check entries in Little Log afterward.')
+    return 1 if any(c['unmapped'] for c in report['children']) or report['unassociated_records'] else 0
+
+
 class UserError(Exception):
     pass
 
@@ -578,21 +782,29 @@ def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--backup-only',action='store_true',help='Back up Nara without Huckleberry dependencies')
+    parser.add_argument('--little-log',action='store_true',help='Back up Nara, then generate Little Log import CSVs')
+    parser.add_argument('--little-log-export',type=Path,action='append',default=[],help='Little Log JSON export per baby, in backup child order; repeat for multiple babies')
     parser.add_argument('--migrate',action='store_true',help='Back up Nara, then preview a Huckleberry import')
     parser.add_argument('--backup-dir',type=Path,help='Use an existing backup for a migration/resume')
     parser.add_argument('--output',type=Path,help='New backup folder; must not already exist')
     args = parser.parse_args()
-    if args.backup_only and (args.migrate or args.backup_dir):
+    if args.little_log and args.migrate:
+        parser.error('Choose --little-log or --migrate')
+    if args.little_log_export and not args.little_log:
+        parser.error('--little-log-export requires --little-log')
+    if args.backup_only and (args.migrate or args.little_log or args.backup_dir):
         parser.error('--backup-only cannot be combined with migration')
     if args.backup_dir and args.output:
         parser.error('--backup-dir and --output cannot be combined')
-    do_migrate = args.migrate or args.backup_dir is not None
-    if not args.backup_only and not do_migrate:
-        print('1. Back up Nara Baby only\n2. Back up Nara Baby and migrate to Huckleberry')
-        choice = input('Choose 1 or 2: ').strip()
-        if choice not in ('1','2'):
-            raise UserError('Choose 1 or 2.')
+    do_little_log = args.little_log
+    do_migrate = args.migrate or (args.backup_dir is not None and not do_little_log)
+    if not args.backup_only and not do_migrate and not do_little_log:
+        print('1. Back up Nara Baby only\n2. Back up Nara Baby and migrate to Huckleberry\n3. Back up Nara Baby and prepare a Little Log import')
+        choice = input('Choose 1, 2 or 3: ').strip()
+        if choice not in ('1','2','3'):
+            raise UserError('Choose 1, 2 or 3.')
         do_migrate = choice == '2'
+        do_little_log = choice == '3'
     if do_migrate:
         if sys.version_info < (3,14):
             raise UserError('Huckleberry migration requires Python 3.14 or newer. Backup-only works with Python 3.9+.')
@@ -612,11 +824,13 @@ def main():
         print('Backup saved to: '+str(folder.resolve()))
         if report['errors']:
             print('Some backup requests failed. Details are in export-report.json.')
-        if not do_migrate:
+        if not do_migrate and not do_little_log:
             print('Compare with official app exports before claiming exhaustive coverage.')
             return 1 if report['errors'] else 0
     if not folder.is_dir():
         raise UserError('Backup folder not found.')
+    if do_little_log:
+        return export_little_log(folder, args.little_log_export)
     groups = prepare(folder)
     # Keep unmapped original data available even if login or profile matching fails.
     save(folder/'migration-plan.json',{'children':groups})
