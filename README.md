@@ -34,10 +34,11 @@ Create each child's Huckleberry profile first, using the same name and birth dat
 | Bottles | Recorded volume/unit and milk type |
 | Sleep | Completed intervals |
 | Growth | Measurements converted to metric units |
+| Baths | Bath routines as bath activities with notes; no duration, as Nara records none |
 
 Original timestamps and historical timezone offsets are preserved. Combined diaper descriptions and details without an exact destination option stay in notes. Missing values are not invented.
 
-**Photos, milestones, vaccine entries, unsupported categories, and profile settings are not transferred.** Original records and photo references remain in the backup; actual photo files are not downloaded. Deletion-marked records stay in the backup but are excluded from migration. Unassociated records are not assigned to a child.
+**Photos, milestones, vaccine entries, routines other than baths, unsupported categories, and profile settings are not transferred.** Original records and photo references remain in the backup; actual photo files are not downloaded. Deletion-marked records stay in the backup but are excluded from migration. Unassociated records are not assigned to a child.
 
 ## Verification and resume
 

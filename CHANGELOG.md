@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Migrate Nara bath routines to Huckleberry bath activities, keeping notes and historical timezone offsets. Other routines remain unmapped.
+
 ## 0.3.0
 
 - Add dependency-free option 3: native Little Log CSVs using each baby’s exported destination identity.

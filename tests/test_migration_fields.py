@@ -29,6 +29,17 @@ class Tests(unittest.TestCase):
  def test_growth_converts_to_metric(self):
   _,_,p=m.convert({'type':'GROW','beginDt':0,'tz':'UTC','weightNum':809375,'weightExp':5,'weightUnit':'LB','heightNum':200,'heightExp':1,'heightUnit':'IN'})
   self.assertAlmostEqual(p['weight'],8.09375*0.45359237);self.assertEqual(p['height'],50.8)
+ def test_bath_routine_becomes_bath_activity(self):
+  from datetime import datetime,timezone
+  start=datetime(2024,3,10,9,30,tzinfo=timezone.utc).timestamp()*1000
+  c,s,p=m.convert({'type':'ROUTINE','routineName':'Bath','beginDt':start,'tz':'America/Los_Angeles','note':'Synthetic note'})
+  self.assertEqual((c,s),('activities','intervals'));self.assertEqual(p['mode'],'bath');self.assertEqual(p['notes'],'Synthetic note')
+  self.assertEqual(p['offset'],480);self.assertNotIn('duration',p);self.assertNotIn('end_offset',p)
+  _,_,p=m.convert({'type':'ROUTINE','routineName':'Bath','beginDt':start+3600000,'tz':'America/Los_Angeles'})
+  self.assertEqual(p['offset'],420);self.assertNotIn('notes',p)
+ def test_other_routines_stay_unmapped(self):
+  with self.assertRaises(m.Unmapped):m.convert({'type':'ROUTINE','routineName':'Nail trim','beginDt':0,'tz':'UTC'})
+  with self.assertRaises(m.Unmapped):m.convert({'type':'ROUTINE','beginDt':0,'tz':'UTC'})
  def test_readback_detects_mismatch(self):
   self.assertTrue(m.equal({'start':1,'lastUpdated':1},{'start':1,'lastUpdated':2}));self.assertFalse(m.equal({'start':1},{'start':2}))
 if __name__=='__main__':unittest.main()
