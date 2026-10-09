@@ -33,14 +33,14 @@ def load_migration_dependencies():
     """Load optional packages only when migration is selected; never install here."""
     global aiohttp, HuckleberryAPI, FirebaseDiaperData, FirebaseBottleFeedIntervalData
     global FirebaseBreastFeedIntervalData, FirebaseSleepIntervalData, FirebaseSleepDetails
-    global FirebaseGrowthData, to_firebase_dict
+    global FirebaseGrowthData, FirebaseActivityIntervalData, to_firebase_dict
     if importlib.metadata.version('huckleberry-api') != HUCKLEBERRY_VERSION:
         raise ImportError('The pinned Huckleberry client is required.')
     import aiohttp
     from huckleberry_api import HuckleberryAPI
     from huckleberry_api.firebase_types import (FirebaseDiaperData, FirebaseBottleFeedIntervalData,
         FirebaseBreastFeedIntervalData, FirebaseSleepIntervalData, FirebaseSleepDetails,
-        FirebaseGrowthData, to_firebase_dict)
+        FirebaseGrowthData, FirebaseActivityIntervalData, to_firebase_dict)
 
 
 def relaunch_migration(python):
@@ -339,6 +339,10 @@ def convert(record):
         # Metric avoids ambiguous feet/inches and pounds/ounces compound formats.
         model=FirebaseGrowthData(**kw,mode='growth',**data)
         return 'health','data',to_firebase_dict(model)
+    if typ=='ROUTINE' and r.get('routineName')=='Bath':
+        # Nara baths are instant events; Huckleberry stores them without a duration.
+        model=FirebaseActivityIntervalData(**kw,mode='bath',notes='\n'.join(notes) or None)
+        return 'activities','intervals',to_firebase_dict(model)
     raise Unmapped('No verified Huckleberry destination for '+typ)
 
 
